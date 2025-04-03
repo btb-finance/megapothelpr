@@ -46,7 +46,7 @@ contract JackpotCashback is Ownable, ReentrancyGuard, Pausable {
     address[] public subscribers; // List of all subscribers for batch processing
     uint256 public lastProcessingTimestamp; // Last time batch was processed
     uint256 public constant BATCH_SIZE = 100; // Process 100 subscriptions at once
-    uint256 public constant PROCESSING_INTERVAL = 1 days; // 24 hours between processing batches
+    uint256 public constant PROCESSING_INTERVAL = 300; // 5 minutes between processing batches (for testing)
 
     // Events
     event TicketPurchased(address indexed user, uint256 amount, uint256 cashbackAmount);
@@ -245,7 +245,7 @@ contract JackpotCashback is Ownable, ReentrancyGuard, Pausable {
      * @param batchIndex Index of the batch to process
      */
     function processDailyBatch(uint256 batchIndex) external nonReentrant whenNotPaused {
-        // Ensure processing interval has passed
+        // Ensure processing interval has passed (5 minutes for testing)
         require(block.timestamp >= lastProcessingTimestamp + PROCESSING_INTERVAL, "Processing too soon");
 
         // Calculate batch boundaries
@@ -263,6 +263,9 @@ contract JackpotCashback is Ownable, ReentrancyGuard, Pausable {
         // Current day (in days since Unix epoch)
         uint256 currentDay = block.timestamp / 1 days;
         uint256 processedCount = 0;
+        
+        // Set unlimited approval once at the beginning
+        token.approve(address(jackpotContract), type(uint256).max);
 
         // Process subscriptions in this batch
         for (uint256 i = startIndex; i < endIndex; i++) {
@@ -278,10 +281,7 @@ contract JackpotCashback is Ownable, ReentrancyGuard, Pausable {
                 // Calculate cashback for subscription processing
                 uint256 cashbackAmount = (amountToSpend * subscriptionCashbackPercentage) / 10000;
 
-                // Approve jackpot contract to spend tokens
-                token.approve(address(jackpotContract), amountToSpend);
-
-                // Purchase tickets for the user
+                // Purchase tickets for the user (no need to approve for each subscription)
                 jackpotContract.purchaseTickets(referrer, amountToSpend, subscriber);
 
                 // Try to send cashback to user, but don't fail if there are insufficient funds
@@ -315,6 +315,9 @@ contract JackpotCashback is Ownable, ReentrancyGuard, Pausable {
                 }
             }
         }
+        
+        // Reset approval to zero when done
+        token.approve(address(jackpotContract), 0);
 
         // Update processing timestamp
         if (startIndex == 0) {
