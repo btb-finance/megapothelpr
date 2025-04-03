@@ -21,6 +21,7 @@ interface IBaseJackpot {
  * Now with subscription features allowing users to purchase tickets automatically for multiple days.
  * Updated with subscription upgrade/merge functionality.
  * Modified to use batch processing for all ticket purchases, including initial subscription day.
+ * Updated to use global batch day tracking instead of individual day tracking.
  */
 contract JackpotCashback is Ownable, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
@@ -34,19 +35,24 @@ contract JackpotCashback is Ownable, ReentrancyGuard, Pausable {
     uint256 public constant MAX_CASHBACK_PERCENTAGE = 1000; // 10% maximum cashback
     uint256 public constant WITHDRAWAL_TAX_PERCENTAGE = 2000; // 20% tax on normal withdrawals
 
+    // Batch tracking variables
+    uint256 public currentBatchDay; // Global counter for batch days
+    uint256 public lastBatchTimestamp; // Last time a full batch cycle was completed
+    uint256 public constant BATCH_SIZE = 100; // Process 100 subscriptions at once
+    uint256 public constant PROCESSING_INTERVAL = 1 days; // 24 hours between processing batches
+    mapping(uint256 => bool) public batchProcessed; // Tracks which batches have been processed for the current batch day
+    uint256 public totalBatches; // Total number of batches needed to process all subscribers
+
     // Subscription-related state variables
     struct Subscription {
         uint256 ticketsPerDay; // How many tickets to buy each day
         uint256 daysRemaining; // Number of days left in subscription
-        uint256 lastProcessedDay; // Last day this subscription was processed
+        uint256 lastProcessedBatchDay; // Last batch day this subscription was processed
         bool isActive; // Whether the subscription is active
     }
 
     mapping(address => Subscription) public subscriptions;
     address[] public subscribers; // List of all subscribers for batch processing
-    uint256 public lastProcessingTimestamp; // Last time batch was processed
-    uint256 public constant BATCH_SIZE = 100; // Process 100 subscriptions at once
-    uint256 public constant PROCESSING_INTERVAL = 300; // 5 minutes between processing batches (for testing)
 
     // Events
     event TicketPurchased(address indexed user, uint256 amount, uint256 cashbackAmount);
@@ -63,7 +69,7 @@ contract JackpotCashback is Ownable, ReentrancyGuard, Pausable {
     event SubscriptionCancelled(address indexed user, uint256 refundAmount, uint256 taxAmount);
     event ReferrerTaxPaid(address indexed referrer, address indexed user, uint256 taxAmount);
     event BatchProcessed(uint256 batchIndex, uint256 processedCount);
-    // New events for subscription upgrades
+    event BatchDayCompleted(uint256 batchDay, uint256 timestamp);
     event SubscriptionUpgraded(
         address indexed user, uint256 newTicketsPerDay, uint256 newDaysRemaining, uint256 additionalCost
     );
@@ -88,7 +94,10 @@ contract JackpotCashback is Ownable, ReentrancyGuard, Pausable {
         referrer = _referrer;
         immediatePurchaseCashbackPercentage = _cashbackPercentage;
         subscriptionCashbackPercentage = _cashbackPercentage; // Initially set to same value, can be changed later
-        lastProcessingTimestamp = block.timestamp;
+        
+        // Initialize batch day tracking
+        currentBatchDay = 0;
+        lastBatchTimestamp = block.timestamp;
     }
 
     /**
@@ -169,17 +178,16 @@ contract JackpotCashback is Ownable, ReentrancyGuard, Pausable {
 
         if (!alreadySubscribed) {
             subscribers.push(msg.sender);
+            // Update total batches
+            totalBatches = (subscribers.length + BATCH_SIZE - 1) / BATCH_SIZE;
         }
 
-        // Get current day (in days since Unix epoch) for reference
-        uint256 currentDay = block.timestamp / 1 days;
-
         // Create subscription with full days - no immediate purchase
-        // Set lastProcessedDay to day before current day so it will be processed in next batch
+        // Set lastProcessedBatchDay to one before current batch day so it will be processed in next batch
         subscriptions[msg.sender] = Subscription({
             ticketsPerDay: ticketsPerDay,
             daysRemaining: daysCount,
-            lastProcessedDay: currentDay - 1, // Set to previous day so next batch will process it
+            lastProcessedBatchDay: currentBatchDay - 1, // Set to previous batch day so next batch will process it
             isActive: true
         });
 
@@ -245,8 +253,10 @@ contract JackpotCashback is Ownable, ReentrancyGuard, Pausable {
      * @param batchIndex Index of the batch to process
      */
     function processDailyBatch(uint256 batchIndex) external nonReentrant whenNotPaused {
-        // Ensure processing interval has passed (5 minutes for testing)
-        require(block.timestamp >= lastProcessingTimestamp + PROCESSING_INTERVAL, "Processing too soon");
+        // Ensure processing interval has passed if we're starting a new batch day
+        if (batchIndex == 0 && !allBatchesProcessed()) {
+            require(block.timestamp >= lastBatchTimestamp + PROCESSING_INTERVAL, "Processing too soon");
+        }
 
         // Calculate batch boundaries
         uint256 startIndex = batchIndex * BATCH_SIZE;
@@ -259,21 +269,22 @@ contract JackpotCashback is Ownable, ReentrancyGuard, Pausable {
 
         // Ensure batch is valid
         require(startIndex < subscribers.length, "Batch index out of range");
-
-        // Current day (in days since Unix epoch)
-        uint256 currentDay = block.timestamp / 1 days;
-        uint256 processedCount = 0;
         
-        // Set unlimited approval once at the beginning
-        token.approve(address(jackpotContract), type(uint256).max);
+        // Check if this batch has already been processed for the current batch day
+        require(!batchProcessed[batchIndex], "Batch already processed for current day");
+
+        // Mark this batch as processed for the current day
+        batchProcessed[batchIndex] = true;
+        
+        uint256 processedCount = 0;
 
         // Process subscriptions in this batch
         for (uint256 i = startIndex; i < endIndex; i++) {
             address subscriber = subscribers[i];
             Subscription storage sub = subscriptions[subscriber];
 
-            // Check if subscription is active and hasn't been processed today
-            if (sub.isActive && sub.daysRemaining > 0 && sub.lastProcessedDay < currentDay) {
+            // Check if subscription is active and hasn't been processed in the current batch day
+            if (sub.isActive && sub.daysRemaining > 0 && sub.lastProcessedBatchDay < currentBatchDay) {
                 // Calculate amount to spend today
                 uint256 ticketPrice = jackpotContract.ticketPrice();
                 uint256 amountToSpend = ticketPrice * sub.ticketsPerDay;
@@ -281,7 +292,10 @@ contract JackpotCashback is Ownable, ReentrancyGuard, Pausable {
                 // Calculate cashback for subscription processing
                 uint256 cashbackAmount = (amountToSpend * subscriptionCashbackPercentage) / 10000;
 
-                // Purchase tickets for the user (no need to approve for each subscription)
+                // Approve jackpot contract to spend tokens
+                token.approve(address(jackpotContract), amountToSpend);
+
+                // Purchase tickets for the user
                 jackpotContract.purchaseTickets(referrer, amountToSpend, subscriber);
 
                 // Try to send cashback to user, but don't fail if there are insufficient funds
@@ -302,7 +316,7 @@ contract JackpotCashback is Ownable, ReentrancyGuard, Pausable {
                 }
 
                 // Update subscription
-                sub.lastProcessedDay = currentDay;
+                sub.lastProcessedBatchDay = currentBatchDay;
                 sub.daysRemaining--;
 
                 emit SubscriptionProcessed(subscriber, sub.ticketsPerDay, sub.daysRemaining);
@@ -315,22 +329,56 @@ contract JackpotCashback is Ownable, ReentrancyGuard, Pausable {
                 }
             }
         }
-        
-        // Reset approval to zero when done
-        token.approve(address(jackpotContract), 0);
-
-        // Update processing timestamp
-        if (startIndex == 0) {
-            lastProcessingTimestamp = block.timestamp;
-        }
 
         emit BatchProcessed(batchIndex, processedCount);
 
-        // Clean up subscribers list (remove inactive subscriptions)
-        // Only do this after the last batch to avoid interference with batch processing
-        if (endIndex == subscribers.length) {
+        // Check if all batches have been processed
+        if (allBatchesProcessed()) {
+            // Increment the batch day counter
+            currentBatchDay++;
+            
+            // Reset all batch processed flags for the new batch day
+            for (uint256 i = 0; i < totalBatches; i++) {
+                batchProcessed[i] = false;
+            }
+            
+            // Update last batch timestamp
+            lastBatchTimestamp = block.timestamp;
+            
+            // Emit event for batch day completion
+            emit BatchDayCompleted(currentBatchDay - 1, block.timestamp);
+            
+            // Clean up subscribers list (remove inactive subscriptions)
             cleanupInactiveSubscribers();
         }
+    }
+
+    /**
+     * @dev Checks if all batches have been processed for the current batch day
+     * @return Whether all batches have been processed
+     */
+    function allBatchesProcessed() public view returns (bool) {
+        for (uint256 i = 0; i < totalBatches; i++) {
+            // Skip empty batches
+            uint256 startIndex = i * BATCH_SIZE;
+            if (startIndex >= subscribers.length) {
+                continue;
+            }
+            
+            // If any batch is not processed, return false
+            if (!batchProcessed[i]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * @dev Returns the number of batches needed to process all subscribers
+     * @return Number of batches
+     */
+    function getNumberOfBatches() public view returns (uint256) {
+        return totalBatches;
     }
 
     /**
@@ -419,16 +467,16 @@ contract JackpotCashback is Ownable, ReentrancyGuard, Pausable {
      * @param user Address to check
      * @return ticketsPerDay Number of tickets purchased daily
      * @return daysRemaining Days left in the subscription
-     * @return lastProcessedDay Last day the subscription was processed
+     * @return lastProcessedBatchDay Last batch day the subscription was processed
      * @return isActive Whether the subscription is active
      */
     function getSubscription(address user)
         external
         view
-        returns (uint256 ticketsPerDay, uint256 daysRemaining, uint256 lastProcessedDay, bool isActive)
+        returns (uint256 ticketsPerDay, uint256 daysRemaining, uint256 lastProcessedBatchDay, bool isActive)
     {
         Subscription storage sub = subscriptions[user];
-        return (sub.ticketsPerDay, sub.daysRemaining, sub.lastProcessedDay, sub.isActive);
+        return (sub.ticketsPerDay, sub.daysRemaining, sub.lastProcessedBatchDay, sub.isActive);
     }
 
     /**
@@ -456,6 +504,9 @@ contract JackpotCashback is Ownable, ReentrancyGuard, Pausable {
                 i++;
             }
         }
+        
+        // Update total batches after cleanup
+        totalBatches = (subscribers.length + BATCH_SIZE - 1) / BATCH_SIZE;
     }
 
     /**
