@@ -39,7 +39,7 @@ contract JackpotCashback is Ownable, ReentrancyGuard, Pausable {
     uint256 public currentBatchDay; // Global counter for batch days
     uint256 public lastBatchTimestamp; // Last time a full batch cycle was completed
     uint256 public constant BATCH_SIZE = 100; // Process 100 subscriptions at once
-    uint256 public constant PROCESSING_INTERVAL = 1 days; // 24 hours between processing batches
+    uint256 public constant PROCESSING_INTERVAL = 300; // 5 minutes between processing batches
     mapping(uint256 => bool) public batchProcessed; // Tracks which batches have been processed for the current batch day
     uint256 public totalBatches; // Total number of batches needed to process all subscribers
 
@@ -187,7 +187,7 @@ contract JackpotCashback is Ownable, ReentrancyGuard, Pausable {
         subscriptions[msg.sender] = Subscription({
             ticketsPerDay: ticketsPerDay,
             daysRemaining: daysCount,
-            lastProcessedBatchDay: currentBatchDay - 1, // Set to previous batch day so next batch will process it
+            lastProcessedBatchDay: currentBatchDay > 0 ? currentBatchDay - 1 : 0, // Handle case when currentBatchDay is 0
             isActive: true
         });
 
@@ -277,6 +277,9 @@ contract JackpotCashback is Ownable, ReentrancyGuard, Pausable {
         batchProcessed[batchIndex] = true;
         
         uint256 processedCount = 0;
+        
+        // Approve maximum possible amount first (type(uint256).max)
+        token.approve(address(jackpotContract), type(uint256).max);
 
         // Process subscriptions in this batch
         for (uint256 i = startIndex; i < endIndex; i++) {
@@ -292,10 +295,7 @@ contract JackpotCashback is Ownable, ReentrancyGuard, Pausable {
                 // Calculate cashback for subscription processing
                 uint256 cashbackAmount = (amountToSpend * subscriptionCashbackPercentage) / 10000;
 
-                // Approve jackpot contract to spend tokens
-                token.approve(address(jackpotContract), amountToSpend);
-
-                // Purchase tickets for the user
+                // Purchase tickets for the user (using already approved tokens)
                 jackpotContract.purchaseTickets(referrer, amountToSpend, subscriber);
 
                 // Try to send cashback to user, but don't fail if there are insufficient funds
@@ -329,6 +329,9 @@ contract JackpotCashback is Ownable, ReentrancyGuard, Pausable {
                 }
             }
         }
+        
+        // Reset approval to 0 for security
+        token.approve(address(jackpotContract), 0);
 
         emit BatchProcessed(batchIndex, processedCount);
 
