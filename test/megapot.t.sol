@@ -12,12 +12,7 @@ contract JackpotCashbackTest is Test {
     uint256 public cashbackPercentage = 10;
 
     function setUp() public {
-        jackpotCashback = new JackpotCashback(
-            jackpotAddress,
-            usdcAddress,
-            referralAddress,
-            cashbackPercentage
-        );
+        jackpotCashback = new JackpotCashback(jackpotAddress, usdcAddress, referralAddress, cashbackPercentage);
     }
 
     function test_Constructor() public {

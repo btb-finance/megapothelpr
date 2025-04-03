@@ -14,27 +14,23 @@ contract DeployScript is Script {
         address jackpotAddress = vm.envAddress("jackpot_address");
         address referralAddress = vm.envAddress("referral_address");
         uint256 cashbackPercentage = vm.envUint("cashback_percentage");
-        
+
         console2.log("Deploying JackpotCashback with the following parameters:");
         console2.log("USDC Address:", usdcAddress);
         console2.log("Jackpot Address:", jackpotAddress);
         console2.log("Referral Address:", referralAddress);
         console2.log("Cashback Percentage:", cashbackPercentage);
-        
+
         // Start broadcasting transactions
         vm.startBroadcast(deployerPrivateKey);
-        
+
         // Deploy JackpotCashback contract
-        JackpotCashback jackpotCashback = new JackpotCashback(
-            jackpotAddress,
-            usdcAddress,
-            referralAddress,
-            cashbackPercentage
-        );
-        
+        JackpotCashback jackpotCashback =
+            new JackpotCashback(jackpotAddress, usdcAddress, referralAddress, cashbackPercentage);
+
         // Log the deployed contract address
         console2.log("JackpotCashback deployed at:", address(jackpotCashback));
-        
+
         vm.stopBroadcast();
     }
-} 
+}
