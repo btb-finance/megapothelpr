@@ -1,66 +1,44 @@
-## Foundry
+# Megapot Helper
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+A set of helper tools and scripts for interacting with the MegaPot smart contract ecosystem on Base.
 
-Foundry consists of:
+## Overview
 
--   **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
--   **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
--   **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
--   **Chisel**: Fast, utilitarian, and verbose solidity REPL.
+This repository contains utility scripts and tools for:
+- Creating and managing subscriptions
+- Batch operations
+- Testing and simulation tools
+- Helper functions for interacting with the JackpotCashback contract
 
-## Documentation
+## Installation
 
-https://book.getfoundry.sh/
+```bash
+# Clone the repository
+git clone https://github.com/btb-finance/megapothelpr.git
+cd megapothelpr
+
+# Install dependencies
+forge install
+```
 
 ## Usage
 
-### Build
+### Environment Setup
 
-```shell
-$ forge build
+Create a `.env` file with the following variables:
+```
+private_key=YOUR_PRIVATE_KEY
+usdc_address=USDC_ADDRESS
+jackpotcashback_address=JACKPOT_CASHBACK_ADDRESS
 ```
 
-### Test
+### Running Scripts
 
-```shell
-$ forge test
+```bash
+# Create batch subscriptions
+source .env && forge script script/BatchSubscriptionTest.s.sol:BatchSubscriptionTestScript --rpc-url https://sepolia.base.org --broadcast --skip-simulation -vvv
 ```
 
-### Format
+## License
 
-```shell
-$ forge fmt
-```
-
-### Gas Snapshots
-
-```shell
-$ forge snapshot
-```
-
-### Anvil
-
-```shell
-$ anvil
-```
-
-### Deploy
-
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
-```
-
-### Cast
-
-```shell
-$ cast <subcommand>
-```
-
-### Help
-
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```
+MIT

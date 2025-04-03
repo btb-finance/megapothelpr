@@ -10,5 +10,34 @@ out/
 # Docs
 docs/
 
-# Dotenv file
+# Environment variables
 .env
+.env.local
+.env.*
+
+# Node modules
+node_modules/
+
+# Debug files
+*.log
+
+# Local development files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Coverage report files
+coverage/
+lcov.info
+
+# Secret files
+*secret*
+
+# Hardhat files if using alongside Forge
+artifacts/
+typechain/
+typechain-types/
+
+# Foundry
+forge-cache/
