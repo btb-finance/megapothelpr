@@ -96,7 +96,7 @@ contract JackpotCashback is Ownable, ReentrancyGuard, Pausable {
         subscriptionCashbackPercentage = _cashbackPercentage; // Initially set to same value, can be changed later
         
         // Initialize batch day tracking
-        currentBatchDay = 0;
+        currentBatchDay = 1;
         lastBatchTimestamp = block.timestamp;
     }
 
