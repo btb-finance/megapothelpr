@@ -39,7 +39,7 @@ contract JackpotCashback is Ownable, ReentrancyGuard, Pausable {
     uint256 public currentBatchDay; // Global counter for batch days
     uint256 public lastBatchTimestamp; // Last time a full batch cycle was completed
     uint256 public constant BATCH_SIZE = 100; // Process 100 subscriptions at once
-    uint256 public constant PROCESSING_INTERVAL = 300; // 5 minutes between processing batches
+    uint256 public constant PROCESSING_INTERVAL = 1 days; // 24 hours between processing batches
     mapping(uint256 => bool) public batchProcessed; // Tracks which batches have been processed for the current batch day
     uint256 public totalBatches; // Total number of batches needed to process all subscribers
 
