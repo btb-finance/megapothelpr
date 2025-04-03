@@ -565,4 +565,41 @@ contract JackpotCashback is Ownable, ReentrancyGuard, Pausable {
     function unpause() external onlyOwner {
         _unpause();
     }
+
+    /**
+     * @dev Calculates the amount of tokens needed to create a subscription
+     * @param ticketsPerDay Number of tickets to purchase each day
+     * @param daysCount Number of days to maintain the subscription
+     * @return requiredAmount Total amount of tokens needed
+     */
+    function calculateSubscriptionCost(uint256 ticketsPerDay, uint256 daysCount) external view returns (uint256 requiredAmount) {
+        uint256 ticketPrice = jackpotContract.ticketPrice();
+        return ticketPrice * ticketsPerDay * daysCount;
+    }
+
+    /**
+     * @dev Calculates the amount of tokens needed to upgrade an existing subscription
+     * @param newTicketsPerDay New number of tickets to purchase each day
+     * @param additionalDays Additional days to add to the subscription
+     * @return additionalCost Additional amount of tokens needed (0 if no additional cost)
+     */
+    function calculateUpgradeCost(address subscriber, uint256 newTicketsPerDay, uint256 additionalDays) external view returns (uint256 additionalCost) {
+        require(hasActiveSubscription(subscriber), "No active subscription");
+        
+        Subscription storage sub = subscriptions[subscriber];
+        uint256 ticketPrice = jackpotContract.ticketPrice();
+        
+        // Calculate remaining value in current subscription
+        uint256 currentValue = sub.daysRemaining * sub.ticketsPerDay * ticketPrice;
+        
+        // Calculate value of the new configuration
+        uint256 totalDays = sub.daysRemaining + additionalDays;
+        uint256 newValue = totalDays * newTicketsPerDay * ticketPrice;
+        
+        // Calculate additional cost
+        if (newValue > currentValue) {
+            return newValue - currentValue;
+        }
+        return 0;
+    }
 }
