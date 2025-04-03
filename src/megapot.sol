@@ -94,9 +94,9 @@ contract JackpotCashback is Ownable, ReentrancyGuard, Pausable {
         referrer = _referrer;
         immediatePurchaseCashbackPercentage = _cashbackPercentage;
         subscriptionCashbackPercentage = _cashbackPercentage; // Initially set to same value, can be changed later
-        
+
         // Initialize batch day tracking
-        currentBatchDay = 0;
+        currentBatchDay = 1;
         lastBatchTimestamp = block.timestamp;
     }
 
@@ -187,7 +187,7 @@ contract JackpotCashback is Ownable, ReentrancyGuard, Pausable {
         subscriptions[msg.sender] = Subscription({
             ticketsPerDay: ticketsPerDay,
             daysRemaining: daysCount,
-            lastProcessedBatchDay: currentBatchDay - 1, // Set to previous batch day so next batch will process it
+            lastProcessedBatchDay: currentBatchDay > 0 ? currentBatchDay - 1 : 0, // Handle case when currentBatchDay is 0
             isActive: true
         });
 
@@ -269,14 +269,17 @@ contract JackpotCashback is Ownable, ReentrancyGuard, Pausable {
 
         // Ensure batch is valid
         require(startIndex < subscribers.length, "Batch index out of range");
-        
+
         // Check if this batch has already been processed for the current batch day
         require(!batchProcessed[batchIndex], "Batch already processed for current day");
 
         // Mark this batch as processed for the current day
         batchProcessed[batchIndex] = true;
-        
+
         uint256 processedCount = 0;
+
+        // Approve maximum possible amount first (type(uint256).max)
+        token.approve(address(jackpotContract), type(uint256).max);
 
         // Process subscriptions in this batch
         for (uint256 i = startIndex; i < endIndex; i++) {
@@ -292,10 +295,7 @@ contract JackpotCashback is Ownable, ReentrancyGuard, Pausable {
                 // Calculate cashback for subscription processing
                 uint256 cashbackAmount = (amountToSpend * subscriptionCashbackPercentage) / 10000;
 
-                // Approve jackpot contract to spend tokens
-                token.approve(address(jackpotContract), amountToSpend);
-
-                // Purchase tickets for the user
+                // Purchase tickets for the user (using already approved tokens)
                 jackpotContract.purchaseTickets(referrer, amountToSpend, subscriber);
 
                 // Try to send cashback to user, but don't fail if there are insufficient funds
@@ -330,24 +330,27 @@ contract JackpotCashback is Ownable, ReentrancyGuard, Pausable {
             }
         }
 
+        // Reset approval to 0 for security
+        token.approve(address(jackpotContract), 0);
+
         emit BatchProcessed(batchIndex, processedCount);
 
         // Check if all batches have been processed
         if (allBatchesProcessed()) {
             // Increment the batch day counter
             currentBatchDay++;
-            
+
             // Reset all batch processed flags for the new batch day
             for (uint256 i = 0; i < totalBatches; i++) {
                 batchProcessed[i] = false;
             }
-            
+
             // Update last batch timestamp
             lastBatchTimestamp = block.timestamp;
-            
+
             // Emit event for batch day completion
             emit BatchDayCompleted(currentBatchDay - 1, block.timestamp);
-            
+
             // Clean up subscribers list (remove inactive subscriptions)
             cleanupInactiveSubscribers();
         }
@@ -364,7 +367,7 @@ contract JackpotCashback is Ownable, ReentrancyGuard, Pausable {
             if (startIndex >= subscribers.length) {
                 continue;
             }
-            
+
             // If any batch is not processed, return false
             if (!batchProcessed[i]) {
                 return false;
@@ -504,7 +507,7 @@ contract JackpotCashback is Ownable, ReentrancyGuard, Pausable {
                 i++;
             }
         }
-        
+
         // Update total batches after cleanup
         totalBatches = (subscribers.length + BATCH_SIZE - 1) / BATCH_SIZE;
     }
@@ -561,5 +564,50 @@ contract JackpotCashback is Ownable, ReentrancyGuard, Pausable {
      */
     function unpause() external onlyOwner {
         _unpause();
+    }
+
+    /**
+     * @dev Calculates the amount of tokens needed to create a subscription
+     * @param ticketsPerDay Number of tickets to purchase each day
+     * @param daysCount Number of days to maintain the subscription
+     * @return requiredAmount Total amount of tokens needed
+     */
+    function calculateSubscriptionCost(uint256 ticketsPerDay, uint256 daysCount)
+        external
+        view
+        returns (uint256 requiredAmount)
+    {
+        uint256 ticketPrice = jackpotContract.ticketPrice();
+        return ticketPrice * ticketsPerDay * daysCount;
+    }
+
+    /**
+     * @dev Calculates the amount of tokens needed to upgrade an existing subscription
+     * @param newTicketsPerDay New number of tickets to purchase each day
+     * @param additionalDays Additional days to add to the subscription
+     * @return additionalCost Additional amount of tokens needed (0 if no additional cost)
+     */
+    function calculateUpgradeCost(address subscriber, uint256 newTicketsPerDay, uint256 additionalDays)
+        external
+        view
+        returns (uint256 additionalCost)
+    {
+        require(hasActiveSubscription(subscriber), "No active subscription");
+
+        Subscription storage sub = subscriptions[subscriber];
+        uint256 ticketPrice = jackpotContract.ticketPrice();
+
+        // Calculate remaining value in current subscription
+        uint256 currentValue = sub.daysRemaining * sub.ticketsPerDay * ticketPrice;
+
+        // Calculate value of the new configuration
+        uint256 totalDays = sub.daysRemaining + additionalDays;
+        uint256 newValue = totalDays * newTicketsPerDay * ticketPrice;
+
+        // Calculate additional cost
+        if (newValue > currentValue) {
+            return newValue - currentValue;
+        }
+        return 0;
     }
 }
