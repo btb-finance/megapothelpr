@@ -523,6 +523,27 @@ contract JackpotCashback is Ownable, ReentrancyGuard, Pausable {
     }
 
     /**
+     * @dev Allows the contract owner to delete all inactive subscribers and their data immediately.
+     * Can be called anytime by the owner to free storage and reduce array size.
+     */
+    function deleteAllInactiveSubscribers() external onlyOwner {
+        uint256 i = 0;
+        while (i < subscribers.length) {
+            address subscriber = subscribers[i];
+            if (!subscriptions[subscriber].isActive) {
+                delete subscriptions[subscriber];
+                emit SubscriptionCancelled(subscriber, 0, 0); // optional: signal deletion
+                subscribers[i] = subscribers[subscribers.length - 1];
+                subscribers.pop();
+                // do not increment i, check swapped-in element
+            } else {
+                i++;
+            }
+        }
+        totalBatches = (subscribers.length + BATCH_SIZE - 1) / BATCH_SIZE;
+    }
+
+    /**
      * @dev Updates the immediate purchase cashback percentage
      * @param _newPercentage New cashback percentage in basis points
      */
