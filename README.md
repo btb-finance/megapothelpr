@@ -38,7 +38,30 @@ jackpotcashback_address=JACKPOT_CASHBACK_ADDRESS
 # Create batch subscriptions
 source .env && forge script script/BatchSubscriptionTest.s.sol:BatchSubscriptionTestScript --rpc-url https://sepolia.base.org --broadcast --skip-simulation -vvv
 ```
+## Deployment
+
+Before deploying, ensure you have created a `.env` file with the following variables:
+
+```
+private_key=YOUR_PRIVATE_KEY
+usdc_address=USDC_TOKEN_ADDRESS
+jackpot_address=JACKPOT_CONTRACT_ADDRESS
+referral_address=REFERRAL_CONTRACT_ADDRESS
+cashback_percentage=CASHBACK_PERCENTAGE_NUMBER
+```
+
+Replace the placeholders with your actual deployment values.
+
+To deploy the `JackpotCashback` contract, run:
+
+```bash
+source .env && forge script script/Deploy.s.sol:DeployScript --rpc-url YOUR_RPC_URL --broadcast -vvv
+```
+
+- Replace `YOUR_RPC_URL` with your Ethereum node RPC endpoint.
+- The script will deploy the contract using the provided environment variables.
 
 ## License
 
+MIT
 MIT
